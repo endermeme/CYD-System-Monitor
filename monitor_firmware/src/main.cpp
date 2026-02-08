@@ -5,6 +5,14 @@
 TFT_eSPI tft = TFT_eSPI();
 
 #define COLOR_BG 0x0000
+
+#define COLOR_SAFE 0x07E0
+#define COLOR_GOOD 0x07FF
+#define COLOR_NORMAL 0xFDA0
+#define COLOR_CAUTION 0xFD20
+#define COLOR_WARNING 0xF800
+#define COLOR_CRITICAL 0xFFE0
+
 #define COLOR_TEXT 0xF800
 #define COLOR_DIM 0x8800
 #define COLOR_BRIGHT 0xFDA0
@@ -91,14 +99,14 @@ void drawStatsScreen() {
   int y = 50;
   int s = 22;
 
-  uint16_t cpuColor = (stats.cpu_load > 80) ? COLOR_WARN : COLOR_TEXT;
+  uint16_t cpuColor = (stats.cpu_load > 85) ? COLOR_WARNING : COLOR_TEXT;
   drawLine(y, "CPU",
            String((int)stats.cpu_load) + "% " + String((int)stats.cpu_temp) +
                "C",
            cpuColor);
   y += s;
 
-  uint16_t gpuColor = (stats.gpu_load > 80) ? COLOR_WARN : COLOR_TEXT;
+  uint16_t gpuColor = (stats.gpu_load > 85) ? COLOR_WARNING : COLOR_TEXT;
   drawLine(y, "GPU",
            String(stats.gpu_load) + "% " + String(stats.gpu_temp) + "C",
            gpuColor);
@@ -113,17 +121,17 @@ void drawStatsScreen() {
            COLOR_TEXT);
   y += s;
 
-  uint16_t ramColor = (stats.ram_p > 85) ? COLOR_WARN : COLOR_TEXT;
+  uint16_t ramColor = (stats.ram_p > 90) ? COLOR_WARNING : COLOR_TEXT;
   drawLine(y, "RAM",
            String(stats.ram_used, 1) + "/" + String(stats.ram_total, 1) + "GB",
            ramColor);
   y += s;
 
-  uint16_t swapColor = (stats.swap_p > 50) ? COLOR_WARN : COLOR_TEXT;
+  uint16_t swapColor = (stats.swap_p > 70) ? COLOR_WARNING : COLOR_TEXT;
   drawLine(y, "SWAP", String((int)stats.swap_p) + "%", swapColor);
   y += s;
 
-  uint16_t diskColor = (stats.disk_p > 90) ? COLOR_WARN : COLOR_TEXT;
+  uint16_t diskColor = (stats.disk_p > 90) ? COLOR_WARNING : COLOR_TEXT;
   drawLine(y, "DISK", String((int)stats.disk_p) + "%", diskColor);
 
   tft.setTextDatum(MC_DATUM);
@@ -133,15 +141,17 @@ void drawStatsScreen() {
 }
 
 uint16_t heatColor(float load) {
-  if (load < 20)
-    return 0x2104;
-  if (load < 40)
-    return COLOR_DIM;
-  if (load < 60)
-    return COLOR_TEXT;
-  if (load < 80)
-    return COLOR_BRIGHT;
-  return COLOR_WARN;
+  if (load < 30)
+    return COLOR_SAFE;
+  if (load < 50)
+    return COLOR_GOOD;
+  if (load < 70)
+    return COLOR_NORMAL;
+  if (load < 85)
+    return COLOR_CAUTION;
+  if (load < 95)
+    return COLOR_WARNING;
+  return COLOR_CRITICAL;
 }
 
 void drawReactorScreen() {

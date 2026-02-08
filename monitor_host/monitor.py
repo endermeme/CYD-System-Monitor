@@ -3,11 +3,38 @@ import json
 import argparse
 import psutil
 import serial
-import pynvml
+import serial.tools.list_ports
 import sys
 import os
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+def auto_detect_esp32_port():
+    esp32_vendors = [
+        (0x10C4, 0xEA60),  # CP210x
+        (0x1A86, 0x7523),  # CH340
+        (0x303A, None),     # Espressif (any product)
+    ]
+    
+    ports = serial.tools.list_ports.comports()
+    for port in ports:
+        if port.vid is not None:
+            for vendor_id, product_id in esp32_vendors:
+                if port.vid == vendor_id:
+                    if product_id is None or port.pid == product_id:
+                        return port.device
+    return None
+
+try:
+    import pynvml
+except ImportError:
+    pynvml = None
 
 def get_nvidia_stats():
+    if not pynvml:
+        return {
+            "gpu_load": 0, "vram_used": 0, "vram_total": 0, "vram_p": 0, "gpu_temp": 0, "gpu_pwr": 0
+        }
     try:
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -91,15 +118,32 @@ def get_cpu_power():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", required=True)
+    parser.add_argument("--port", required=False, help="Serial port (auto-detect if not specified)")
     parser.add_argument("--baud", type=int, default=115200)
     
     args = parser.parse_args()
+    
+    if not args.port:
+        print("Auto-detecting ESP32...")
+        args.port = auto_detect_esp32_port()
+        if not args.port:
+            print("ERROR: No ESP32 device found!", file=sys.stderr)
+            print("\nAvailable ports:", file=sys.stderr)
+            for port in serial.tools.list_ports.comports():
+                print(f"  {port.device} - {port.description} (VID:PID {port.vid:04X}:{port.pid:04X})" if port.vid else f"  {port.device} - {port.description}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Found ESP32 at: {args.port}")
     
     try:
         ser = serial.Serial(args.port, args.baud, timeout=1)
         print(f"Connected {args.port}")
     except Exception as e:
+        print(f"ERROR: Cannot connect to {args.port}", file=sys.stderr)
+        print(f"Reason: {e}", file=sys.stderr)
+        print("\nTroubleshooting:", file=sys.stderr)
+        print("1. Check if device is connected", file=sys.stderr)
+        print("2. Check permissions: sudo usermod -a -G uucp $USER", file=sys.stderr)
+        print("3. Try: ls -la /dev/ttyUSB*", file=sys.stderr)
         sys.exit(1)
 
     print("Running...")
@@ -170,4 +214,10 @@ def main():
         ser.close()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"CRITICAL ERROR: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
