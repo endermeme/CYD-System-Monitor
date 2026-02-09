@@ -5,14 +5,6 @@
 TFT_eSPI tft = TFT_eSPI();
 
 #define COLOR_BG 0x0000
-
-#define COLOR_SAFE 0x07E0
-#define COLOR_GOOD 0x07FF
-#define COLOR_NORMAL 0xFDA0
-#define COLOR_CAUTION 0xFD20
-#define COLOR_WARNING 0xF800
-#define COLOR_CRITICAL 0xFFE0
-
 #define COLOR_TEXT 0xF800
 #define COLOR_DIM 0x8800
 #define COLOR_BRIGHT 0xFDA0
@@ -59,6 +51,9 @@ SystemStats stats;
 unsigned long lastDataTime = 0;
 bool isConnected = false;
 
+// Use a sprite for flicker-free updates
+TFT_eSprite spr = TFT_eSprite(&tft);
+
 void setup() {
   Serial.begin(115200);
 
@@ -69,6 +64,18 @@ void setup() {
   tft.invertDisplay(true);
   tft.fillScreen(COLOR_BG);
 
+  // Initialize Sprite with 8-bit color depth to save RAM (76KB instead of
+  // 153KB) This ensures it fits in the ESP32 heap.
+  spr.setColorDepth(8);
+
+  if (spr.createSprite(SCREEN_W, SCREEN_H) == nullptr) {
+    Serial.println("CRITICAL: Not enough RAM even for 8-bit sprite!");
+    // Fallback: If this fails, we effectively get no display update on the
+    // sprite. But 76KB should be available on any ESP32 WROOM.
+  } else {
+    Serial.println("Sprite created successfully (8-bit)");
+  }
+
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(COLOR_BRIGHT);
   tft.drawString("RBMK-1000", SCREEN_W / 2, SCREEN_H / 2 - 20, 4);
@@ -78,35 +85,32 @@ void setup() {
 }
 
 void drawLine(int y, String label, String value, uint16_t color) {
-  tft.setTextDatum(TL_DATUM);
-  tft.setTextColor(COLOR_DIM, COLOR_BG);
-  tft.drawString(label, 10, y, 2);
+  spr.setTextDatum(TL_DATUM);
+  spr.setTextColor(COLOR_DIM, COLOR_BG);
+  spr.drawString(label, 10, y, 2);
 
-  tft.setTextDatum(TR_DATUM);
-  tft.setTextColor(color, COLOR_BG);
-  tft.drawString(value, 310, y, 2);
+  spr.setTextDatum(TR_DATUM);
+  spr.setTextColor(color, COLOR_BG);
+  spr.drawString(value, 310, y, 2);
 }
 
 void drawStatsScreen() {
-  if (modeChanged) {
-    tft.fillScreen(COLOR_BG);
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(COLOR_BRIGHT, COLOR_BG);
-    tft.drawString("SYSTEM MONITOR", SCREEN_W / 2, 8, 2);
-    modeChanged = false;
-  }
+  spr.fillScreen(COLOR_BG);
+  spr.setTextDatum(MC_DATUM);
+  spr.setTextColor(COLOR_BRIGHT, COLOR_BG);
+  spr.drawString("SYSTEM MONITOR", SCREEN_W / 2, 8, 2);
 
   int y = 50;
   int s = 22;
 
-  uint16_t cpuColor = (stats.cpu_load > 85) ? COLOR_WARNING : COLOR_TEXT;
+  uint16_t cpuColor = (stats.cpu_load > 80) ? COLOR_WARN : COLOR_TEXT;
   drawLine(y, "CPU",
            String((int)stats.cpu_load) + "% " + String((int)stats.cpu_temp) +
                "C",
            cpuColor);
   y += s;
 
-  uint16_t gpuColor = (stats.gpu_load > 85) ? COLOR_WARNING : COLOR_TEXT;
+  uint16_t gpuColor = (stats.gpu_load > 80) ? COLOR_WARN : COLOR_TEXT;
   drawLine(y, "GPU",
            String(stats.gpu_load) + "% " + String(stats.gpu_temp) + "C",
            gpuColor);
@@ -121,47 +125,44 @@ void drawStatsScreen() {
            COLOR_TEXT);
   y += s;
 
-  uint16_t ramColor = (stats.ram_p > 90) ? COLOR_WARNING : COLOR_TEXT;
+  uint16_t ramColor = (stats.ram_p > 85) ? COLOR_WARN : COLOR_TEXT;
   drawLine(y, "RAM",
            String(stats.ram_used, 1) + "/" + String(stats.ram_total, 1) + "GB",
            ramColor);
   y += s;
 
-  uint16_t swapColor = (stats.swap_p > 70) ? COLOR_WARNING : COLOR_TEXT;
+  uint16_t swapColor = (stats.swap_p > 50) ? COLOR_WARN : COLOR_TEXT;
   drawLine(y, "SWAP", String((int)stats.swap_p) + "%", swapColor);
   y += s;
 
-  uint16_t diskColor = (stats.disk_p > 90) ? COLOR_WARNING : COLOR_TEXT;
+  uint16_t diskColor = (stats.disk_p > 90) ? COLOR_WARN : COLOR_TEXT;
   drawLine(y, "DISK", String((int)stats.disk_p) + "%", diskColor);
 
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(isConnected ? COLOR_TEXT : COLOR_WARN, COLOR_BG);
-  tft.drawString(isConnected ? "ONLINE" : "OFFLINE", SCREEN_W / 2, SCREEN_H - 8,
+  spr.setTextDatum(MC_DATUM);
+  spr.setTextColor(isConnected ? COLOR_TEXT : COLOR_WARN, COLOR_BG);
+  spr.drawString(isConnected ? "ONLINE" : "OFFLINE", SCREEN_W / 2, SCREEN_H - 8,
                  2);
+
+  spr.pushSprite(0, 0);
 }
 
 uint16_t heatColor(float load) {
-  if (load < 30)
-    return COLOR_SAFE;
-  if (load < 50)
-    return COLOR_GOOD;
-  if (load < 70)
-    return COLOR_NORMAL;
-  if (load < 85)
-    return COLOR_CAUTION;
-  if (load < 95)
-    return COLOR_WARNING;
-  return COLOR_CRITICAL;
+  if (load < 20)
+    return 0x2104;
+  if (load < 40)
+    return COLOR_DIM;
+  if (load < 60)
+    return COLOR_TEXT;
+  if (load < 80)
+    return COLOR_BRIGHT;
+  return COLOR_WARN;
 }
 
 void drawReactorScreen() {
-  if (modeChanged) {
-    tft.fillScreen(COLOR_BG);
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(COLOR_BRIGHT, COLOR_BG);
-    tft.drawString("REACTOR CORE 4", SCREEN_W / 2, 5, 2);
-    modeChanged = false;
-  }
+  spr.fillScreen(COLOR_BG);
+  spr.setTextDatum(MC_DATUM);
+  spr.setTextColor(COLOR_BRIGHT, COLOR_BG);
+  spr.drawString("REACTOR CORE 4", SCREEN_W / 2, 5, 2);
 
   int cellW = 35;
   int cellH = 35;
@@ -178,14 +179,14 @@ void drawReactorScreen() {
       float load = (idx < stats.core_count) ? stats.cores[idx] : 0;
       uint16_t color = heatColor(load);
 
-      tft.fillRect(x, y, cellW, cellH, color);
-      tft.drawRect(x, y, cellW, cellH, COLOR_BG);
+      spr.fillRect(x, y, cellW, cellH, color);
+      spr.drawRect(x, y, cellW, cellH, COLOR_BG);
 
-      tft.setTextDatum(MC_DATUM);
-      tft.setTextColor(COLOR_BG, color);
-      tft.drawString(String(idx), x + cellW / 2, y + cellH / 2 - 5, 2);
-      tft.setTextColor(COLOR_BG, color);
-      tft.drawString(String((int)load) + "%", x + cellW / 2, y + cellH / 2 + 7,
+      spr.setTextDatum(MC_DATUM);
+      spr.setTextColor(COLOR_BG, color);
+      spr.drawString(String(idx), x + cellW / 2, y + cellH / 2 - 5, 2);
+      spr.setTextColor(COLOR_BG, color);
+      spr.drawString(String((int)load) + "%", x + cellW / 2, y + cellH / 2 + 7,
                      1);
     }
   }
@@ -195,51 +196,53 @@ void drawReactorScreen() {
   int boxW = 90;
   int boxH = 35;
 
-  tft.fillRect(boxX, boxY, boxW, boxH, heatColor(stats.gpu_load));
-  tft.drawRect(boxX, boxY, boxW, boxH, COLOR_BG);
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(COLOR_BG);
-  tft.drawString("GPU", boxX + boxW / 2, boxY + 10, 2);
-  tft.drawString(String(stats.gpu_load) + "%", boxX + boxW / 2, boxY + 24, 1);
+  spr.fillRect(boxX, boxY, boxW, boxH, heatColor(stats.gpu_load));
+  spr.drawRect(boxX, boxY, boxW, boxH, COLOR_BG);
+  spr.setTextDatum(MC_DATUM);
+  spr.setTextColor(COLOR_BG);
+  spr.drawString("GPU", boxX + boxW / 2, boxY + 10, 2);
+  spr.drawString(String(stats.gpu_load) + "%", boxX + boxW / 2, boxY + 24, 1);
 
   boxY += boxH + gap;
 
   float vramP =
       (stats.vram_total > 0) ? (stats.vram_used / stats.vram_total * 100) : 0;
-  tft.fillRect(boxX, boxY, boxW, boxH, heatColor(vramP));
-  tft.drawRect(boxX, boxY, boxW, boxH, COLOR_BG);
-  tft.setTextColor(COLOR_BG);
-  tft.drawString("VRAM", boxX + boxW / 2, boxY + 10, 2);
-  tft.drawString(String((int)vramP) + "%", boxX + boxW / 2, boxY + 24, 1);
+  spr.fillRect(boxX, boxY, boxW, boxH, heatColor(vramP));
+  spr.drawRect(boxX, boxY, boxW, boxH, COLOR_BG);
+  spr.setTextColor(COLOR_BG);
+  spr.drawString("VRAM", boxX + boxW / 2, boxY + 10, 2);
+  spr.drawString(String((int)vramP) + "%", boxX + boxW / 2, boxY + 24, 1);
 
   boxY += boxH + gap;
 
-  tft.fillRect(boxX, boxY, boxW, boxH, heatColor(stats.ram_p));
-  tft.drawRect(boxX, boxY, boxW, boxH, COLOR_BG);
-  tft.setTextColor(COLOR_BG);
-  tft.drawString("RAM", boxX + boxW / 2, boxY + 10, 2);
-  tft.drawString(String((int)stats.ram_p) + "%", boxX + boxW / 2, boxY + 24, 1);
+  spr.fillRect(boxX, boxY, boxW, boxH, heatColor(stats.ram_p));
+  spr.drawRect(boxX, boxY, boxW, boxH, COLOR_BG);
+  spr.setTextColor(COLOR_BG);
+  spr.drawString("RAM", boxX + boxW / 2, boxY + 10, 2);
+  spr.drawString(String((int)stats.ram_p) + "%", boxX + boxW / 2, boxY + 24, 1);
 
   boxY += boxH + gap;
 
-  tft.fillRect(boxX, boxY, boxW, boxH, heatColor(stats.swap_p));
-  tft.drawRect(boxX, boxY, boxW, boxH, COLOR_BG);
-  tft.setTextColor(COLOR_BG);
-  tft.drawString("SWAP", boxX + boxW / 2, boxY + 10, 2);
-  tft.drawString(String((int)stats.swap_p) + "%", boxX + boxW / 2, boxY + 24,
+  spr.fillRect(boxX, boxY, boxW, boxH, heatColor(stats.swap_p));
+  spr.drawRect(boxX, boxY, boxW, boxH, COLOR_BG);
+  spr.setTextColor(COLOR_BG);
+  spr.drawString("SWAP", boxX + boxW / 2, boxY + 10, 2);
+  spr.drawString(String((int)stats.swap_p) + "%", boxX + boxW / 2, boxY + 24,
                  1);
 
   int powerY = startY + 4 * (cellH + gap) + 6;
-  tft.setTextDatum(TL_DATUM);
-  tft.setTextColor(COLOR_TEXT, COLOR_BG);
-  tft.drawString("CPU:" + String((int)stats.cpu_pwr) + "W", startX, powerY, 1);
-  tft.drawString("GPU:" + String((int)stats.gpu_pwr) + "W", startX + 80, powerY,
+  spr.setTextDatum(TL_DATUM);
+  spr.setTextColor(COLOR_TEXT, COLOR_BG);
+  spr.drawString("CPU:" + String((int)stats.cpu_pwr) + "W", startX, powerY, 1);
+  spr.drawString("GPU:" + String((int)stats.gpu_pwr) + "W", startX + 80, powerY,
                  1);
 
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(isConnected ? COLOR_TEXT : COLOR_WARN, COLOR_BG);
-  tft.drawString(isConnected ? "ONLINE" : "OFFLINE", SCREEN_W / 2, SCREEN_H - 5,
+  spr.setTextDatum(MC_DATUM);
+  spr.setTextColor(isConnected ? COLOR_TEXT : COLOR_WARN, COLOR_BG);
+  spr.drawString(isConnected ? "ONLINE" : "OFFLINE", SCREEN_W / 2, SCREEN_H - 5,
                  1);
+
+  spr.pushSprite(0, 0);
 }
 
 void loop() {
@@ -269,14 +272,17 @@ void loop() {
     }
   }
 
+  bool dataUpdated = false;
+
   if (Serial.available()) {
     String line = Serial.readStringUntil('\n');
-    StaticJsonDocument<1024> doc;
+    StaticJsonDocument<1536> doc; // Increased size to be safe
     DeserializationError error = deserializeJson(doc, line);
 
     if (!error) {
       lastDataTime = millis();
       isConnected = true;
+      dataUpdated = true;
 
       stats.cpu_load = doc["cpu"]["load"];
       stats.cpu_temp = doc["cpu"]["temp"];
@@ -309,14 +315,20 @@ void loop() {
   }
 
   if (millis() - lastDataTime > 3000) {
-    isConnected = false;
+    if (isConnected) { // State changed to offline
+      isConnected = false;
+      dataUpdated = true; // Trigger redraw to show OFFLINE
+    }
   }
 
-  if (currentMode == MODE_STATS) {
-    drawStatsScreen();
-  } else {
-    drawReactorScreen();
+  // Only redraw if data changed, mode changed, or periodically (to keep alive)
+  static unsigned long lastDrawTime = 0;
+  if (dataUpdated || modeChanged || (millis() - lastDrawTime > 200)) {
+    if (currentMode == MODE_STATS) {
+      drawStatsScreen();
+    } else {
+      drawReactorScreen();
+    }
+    lastDrawTime = millis();
   }
-
-  delay(50);
 }

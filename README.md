@@ -39,7 +39,23 @@ bash run.sh
 bash update_opt.sh
 ```
 
-## Troubleshooting
+### Troubleshooting
+
+### Màn hình bị nháy (Fix mới nhất)
+Code firmware đã được cập nhật sử dụng **Double Buffering (Sprite)** để loại bỏ hoàn toàn hiện tượng nháy khi refresh dữ liệu.
+Để áp dụng fix này, bạn cần nạp lại firmware mới nhất:
+
+```bash
+# 1. Tắt monitor đang chạy
+killall python3
+
+# 2. Vào thư mục firmware và upload
+cd monitor_firmware
+pio run -t upload
+
+# 3. Chạy lại monitor
+cyd-monitor
+```
 
 ### Permission denied
 ```bash

@@ -1,8 +1,14 @@
 #!/bin/bash
+set -e
 
-# Quick update script - run this after making changes to run.sh
-sudo cp /home/binhtagilla/Desktop/cyd-monitor/run.sh /opt/cyd-monitor/run.sh
+echo "Updating /opt/cyd-monitor..."
+
+# Sync Python code
+sudo cp -r monitor_host /opt/cyd-monitor/
+
+# Sync runner script
+sudo cp run.sh /opt/cyd-monitor/
 sudo chmod +x /opt/cyd-monitor/run.sh
 
-echo "✓ Updated /opt/cyd-monitor/run.sh"
+echo "✓ Updated code and runner in /opt/cyd-monitor"
 echo "Test with: cyd-monitor"

@@ -116,106 +116,173 @@ def get_cpu_power():
     except:
         return 0.0
 
+
+class SerialManager:
+    def __init__(self, port=None, baud=115200):
+        self.port = port
+        self.baud = baud
+        self.serial = None
+        self.connected = False
+        self.backoff = 1
+        self.max_backoff = 30
+        
+    def find_port(self):
+        """Auto-detect ESP32 port if not manually specified"""
+        if self.port:
+            return self.port
+            
+        detected_port = auto_detect_esp32_port()
+        if detected_port:
+            print(f"Auto-detected ESP32 at {detected_port}")
+            return detected_port
+        return None
+
+    def connect(self):
+        """Attempt to connect to the serial port"""
+        target_port = self.find_port()
+        
+        if not target_port:
+            print("No ESP32 found. Retrying...", file=sys.stderr)
+            return False
+
+        try:
+            self.serial = serial.Serial(target_port, self.baud, timeout=1)
+            print(f"Connected to {target_port}")
+            self.connected = True
+            self.backoff = 1  # Reset backoff on successful connection
+            self.port = target_port # Cache the found port 
+            return True
+        except Exception as e:
+            print(f"Connection failed: {e}", file=sys.stderr)
+            self.connected = False
+            return False
+
+    def disconnect(self):
+        """Cleanly disconnect"""
+        if self.serial:
+            try:
+                self.serial.close()
+            except:
+                pass
+        self.serial = None
+        self.connected = False
+        print("Disconnected.")
+
+    def write(self, data):
+        """Write data to serial port, handle errors"""
+        if not self.connected or not self.serial:
+            return False
+            
+        try:
+            json_str = json.dumps(data)
+            self.serial.write((json_str + '\n').encode('utf-8'))
+            return True
+        except Exception as e:
+            print(f"Write error: {e}", file=sys.stderr)
+            self.disconnect()
+            return False
+
+    def run(self):
+        """Main loop"""
+        print("Starting Monitor with Auto-Reconnect...")
+        
+        while True:
+            # Reconnection logic
+            if not self.connected:
+                if self.connect():
+                    # Just connected, proceed immediately
+                    pass 
+                else:
+                    # Connection failed, wait and retry
+                    wait_time = self.backoff
+                    print(f"Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                    # Exponential backoff with jitter could be added, but simple doubling is fine
+                    self.backoff = min(self.backoff * 2, self.max_backoff)
+                    continue
+
+            # Stats Collection
+            try:
+                cpu_percent = psutil.cpu_percent(interval=None)
+                cpu_freq = psutil.cpu_freq().current if psutil.cpu_freq() else 0
+                cpu_temp = get_cpu_temp()
+                cpu_pwr = get_cpu_power()
+                cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+                
+                ram = psutil.virtual_memory()
+                ram_used = ram.used / 1024**3
+                ram_total = ram.total / 1024**3
+                
+                swap = psutil.swap_memory()
+                swap_used = swap.used / 1024**3
+                
+                gpu_stats = get_nvidia_stats()
+                
+                disk = psutil.disk_usage('/')
+                disk_used_p = disk.percent
+                
+                net = psutil.net_io_counters()
+                net_sent = net.bytes_sent / 1024**2
+                net_recv = net.bytes_recv / 1024**2
+                
+                data = {
+                    "cpu": {
+                        "load": round(cpu_percent, 1),
+                        "temp": round(cpu_temp, 1),
+                        "freq": round(cpu_freq, 0),
+                        "pwr": cpu_pwr,
+                        "cores": [round(c, 1) for c in cpu_per_core[:16]]
+                    },
+                    "ram": {
+                        "used": round(ram_used, 1),
+                        "total": round(ram_total, 1),
+                        "p": round(ram.percent, 1)
+                    },
+                    "swap": {
+                        "used": round(swap_used, 1),
+                        "p": round(swap.percent, 1)
+                    },
+                    "gpu": gpu_stats,
+                    "disk": {
+                        "p": disk_used_p
+                    },
+                    "net": {
+                        "sent": round(net_sent, 1),
+                        "recv": round(net_recv, 1)
+                    }
+                }
+
+                # Send Data
+                if not self.write(data):
+                    # If write failed, we are already disconnected by self.write()
+                    # Loop will handle reconnection next iteration
+                    pass
+
+            except KeyboardInterrupt:
+                print("Stopping...")
+                break
+            except Exception as e:
+                print(f"Unexpected error in loop: {e}", file=sys.stderr)
+                time.sleep(1) # Prevent tight loop on error
+            
+            time.sleep(1.0)
+        
+        self.disconnect()
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", required=False, help="Serial port (auto-detect if not specified)")
     parser.add_argument("--baud", type=int, default=115200)
-    
     args = parser.parse_args()
     
-    if not args.port:
-        print("Auto-detecting ESP32...")
-        args.port = auto_detect_esp32_port()
-        if not args.port:
-            print("ERROR: No ESP32 device found!", file=sys.stderr)
-            print("\nAvailable ports:", file=sys.stderr)
-            for port in serial.tools.list_ports.comports():
-                print(f"  {port.device} - {port.description} (VID:PID {port.vid:04X}:{port.pid:04X})" if port.vid else f"  {port.device} - {port.description}", file=sys.stderr)
-            sys.exit(1)
-        print(f"Found ESP32 at: {args.port}")
-    
-    try:
-        ser = serial.Serial(args.port, args.baud, timeout=1)
-        print(f"Connected {args.port}")
-    except Exception as e:
-        print(f"ERROR: Cannot connect to {args.port}", file=sys.stderr)
-        print(f"Reason: {e}", file=sys.stderr)
-        print("\nTroubleshooting:", file=sys.stderr)
-        print("1. Check if device is connected", file=sys.stderr)
-        print("2. Check permissions: sudo usermod -a -G uucp $USER", file=sys.stderr)
-        print("3. Try: ls -la /dev/ttyUSB*", file=sys.stderr)
-        sys.exit(1)
-
-    print("Running...")
-    
-    try:
-        while True:
-            cpu_percent = psutil.cpu_percent(interval=None)
-            cpu_freq = psutil.cpu_freq().current if psutil.cpu_freq() else 0
-            cpu_temp = get_cpu_temp()
-            cpu_pwr = get_cpu_power()
-            cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
-            
-            ram = psutil.virtual_memory()
-            ram_used = ram.used / 1024**3
-            ram_total = ram.total / 1024**3
-            
-            swap = psutil.swap_memory()
-            swap_used = swap.used / 1024**3
-            
-            gpu_stats = get_nvidia_stats()
-            
-            disk = psutil.disk_usage('/')
-            disk_used_p = disk.percent
-            
-            net = psutil.net_io_counters()
-            net_sent = net.bytes_sent / 1024**2
-            net_recv = net.bytes_recv / 1024**2
-            
-            data = {
-                "cpu": {
-                    "load": round(cpu_percent, 1),
-                    "temp": round(cpu_temp, 1),
-                    "freq": round(cpu_freq, 0),
-                    "pwr": cpu_pwr,
-                    "cores": [round(c, 1) for c in cpu_per_core[:16]]
-                },
-                "ram": {
-                    "used": round(ram_used, 1),
-                    "total": round(ram_total, 1),
-                    "p": round(ram.percent, 1)
-                },
-                "swap": {
-                    "used": round(swap_used, 1),
-                    "p": round(swap.percent, 1)
-                },
-                "gpu": gpu_stats,
-                "disk": {
-                    "p": disk_used_p
-                },
-                "net": {
-                    "sent": round(net_sent, 1),
-                    "recv": round(net_recv, 1)
-                }
-            }
-
-
-            json_str = json.dumps(data)
-            try:
-                ser.write((json_str + '\n').encode('utf-8'))
-            except Exception as e:
-                pass
-                
-            time.sleep(1.0)
-            
-    except KeyboardInterrupt:
-        ser.close()
-    except Exception as e:
-        ser.close()
+    manager = SerialManager(port=args.port, baud=args.baud)
+    manager.run()
 
 if __name__ == "__main__":
     try:
         main()
+    except KeyboardInterrupt:
+        sys.exit(0)
     except Exception as e:
         print(f"CRITICAL ERROR: {e}", file=sys.stderr)
         import traceback
