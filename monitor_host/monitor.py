@@ -50,7 +50,12 @@ def get_nvidia_stats():
         temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
         
         power_usage = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
-        
+
+        try:
+            gpu_fan = pynvml.nvmlDeviceGetFanSpeed(handle)
+        except:
+            gpu_fan = 0
+
         pynvml.nvmlShutdown()
         return {
             "gpu_load": gpu_load,
@@ -58,12 +63,26 @@ def get_nvidia_stats():
             "vram_total": round(vram_total, 1),
             "vram_p": round(vram_percent, 1),
             "gpu_temp": temp,
-            "gpu_pwr": round(power_usage, 1)
+            "gpu_pwr": round(power_usage, 1),
+            "gpu_fan": gpu_fan
         }
     except Exception as e:
         return {
-            "gpu_load": 0, "vram_used": 0, "vram_total": 0, "vram_p": 0, "gpu_temp": 0, "gpu_pwr": 0
+            "gpu_load": 0, "vram_used": 0, "vram_total": 0, "vram_p": 0, "gpu_temp": 0, "gpu_pwr": 0, "gpu_fan": 0
         }
+
+def get_cpu_fan():
+    try:
+        fans = psutil.sensors_fans()
+        if not fans:
+            return 0
+        for name, entries in fans.items():
+            for entry in entries:
+                if entry.current > 0:
+                    return int(entry.current)
+        return 0
+    except:
+        return 0
 
 def get_cpu_temp():
     try:
@@ -207,6 +226,7 @@ class SerialManager:
                 cpu_freq = psutil.cpu_freq().current if psutil.cpu_freq() else 0
                 cpu_temp = get_cpu_temp()
                 cpu_pwr = get_cpu_power()
+                cpu_fan = get_cpu_fan()
                 cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
                 
                 ram = psutil.virtual_memory()
@@ -231,6 +251,7 @@ class SerialManager:
                         "temp": round(cpu_temp, 1),
                         "freq": round(cpu_freq, 0),
                         "pwr": cpu_pwr,
+                        "fan": cpu_fan,
                         "cores": [round(c, 1) for c in cpu_per_core[:16]]
                     },
                     "ram": {

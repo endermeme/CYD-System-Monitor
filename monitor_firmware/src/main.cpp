@@ -36,11 +36,14 @@ struct SystemStats {
   float swap_used = 0;
   float swap_p = 0;
 
+  int cpu_fan = 0;
+
   int gpu_load = 0;
   float vram_used = 0;
   float vram_total = 0;
   int gpu_temp = 0;
   float gpu_pwr = 0;
+  int gpu_fan = 0;
 
   float disk_p = 0;
   float net_sent = 0;
@@ -230,12 +233,23 @@ void drawReactorScreen() {
   spr.drawString(String((int)stats.swap_p) + "%", boxX + boxW / 2, boxY + 24,
                  1);
 
-  int powerY = startY + 4 * (cellH + gap) + 6;
+  int infoY = startY + 4 * (cellH + gap) + 5;
   spr.setTextDatum(TL_DATUM);
+  spr.setTextColor(COLOR_DIM, COLOR_BG);
+  spr.drawString("CPU", 5, infoY, 1);
   spr.setTextColor(COLOR_TEXT, COLOR_BG);
-  spr.drawString("CPU:" + String((int)stats.cpu_pwr) + "W", startX, powerY, 1);
-  spr.drawString("GPU:" + String((int)stats.gpu_pwr) + "W", startX + 80, powerY,
-                 1);
+  spr.drawString(String((int)stats.cpu_temp) + "C", 27, infoY, 1);
+  spr.drawString(String((int)stats.cpu_pwr) + "W", 52, infoY, 1);
+  spr.setTextColor(COLOR_DIM, COLOR_BG);
+  spr.drawString(String(stats.cpu_fan) + "r", 79, infoY, 1);
+
+  spr.setTextColor(COLOR_DIM, COLOR_BG);
+  spr.drawString("GPU", 130, infoY, 1);
+  spr.setTextColor(COLOR_TEXT, COLOR_BG);
+  spr.drawString(String(stats.gpu_temp) + "C", 152, infoY, 1);
+  spr.drawString(String((int)stats.gpu_pwr) + "W", 177, infoY, 1);
+  spr.setTextColor(COLOR_DIM, COLOR_BG);
+  spr.drawString(String(stats.gpu_fan) + "%", 207, infoY, 1);
 
   spr.setTextDatum(MC_DATUM);
   spr.setTextColor(isConnected ? COLOR_TEXT : COLOR_WARN, COLOR_BG);
@@ -288,6 +302,7 @@ void loop() {
       stats.cpu_temp = doc["cpu"]["temp"];
       stats.cpu_freq = doc["cpu"]["freq"];
       stats.cpu_pwr = doc["cpu"]["pwr"];
+      stats.cpu_fan = doc["cpu"]["fan"];
 
       JsonArray cores = doc["cpu"]["cores"];
       stats.core_count = min((int)cores.size(), 16);
@@ -307,6 +322,7 @@ void loop() {
       stats.vram_total = doc["gpu"]["vram_total"];
       stats.gpu_temp = doc["gpu"]["gpu_temp"];
       stats.gpu_pwr = doc["gpu"]["gpu_pwr"];
+      stats.gpu_fan = doc["gpu"]["gpu_fan"];
 
       stats.disk_p = doc["disk"]["p"];
       stats.net_sent = doc["net"]["sent"];
