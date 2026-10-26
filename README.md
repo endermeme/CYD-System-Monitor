@@ -8,6 +8,23 @@ ESP32-based system monitor với auto-detection và installation vào `/opt`.
 - ✅ **System-wide command**: Cài vào `/opt` và chạy từ bất kỳ đâu với `cyd-monitor`
 - ✅ **Smart monitoring**: CPU, RAM, GPU, Network stats
 
+## Dashboard
+
+Một màn 320x240, cập nhật 1 Hz, sparkline ~150s cho CPU/GPU/NET/DISK:
+
+| Khối | Số liệu |
+|------|---------|
+| Header | hostname, giờ, uptime, trạng thái link |
+| CPU | load %, nhiệt package, xung trung bình, công suất package (RAPL, cần root), load average, số process, load từng thread (tách nhóm P/E trên CPU hybrid) |
+| GPU (NVIDIA) | load %, nhiệt, quạt, PCIe gen/width hiện tại, xung core/mem, VRAM, công suất/giới hạn |
+| MEM | RAM, swap, phân vùng `/` (used/total, %) |
+| NET | RX/TX của interface default route |
+| DISK | đọc/ghi tổng các ổ vật lý, nhiệt NVMe cao nhất |
+
+Màu: cyan bình thường, vàng cảnh báo, đỏ nguy hiểm. Mất dữ liệu > 3s hiện banner `LINK LOST`.
+
+Xem gói dữ liệu host gửi: `.venv/bin/python monitor_host/monitor.py --dump`
+
 ## Installation
 
 ```bash
@@ -41,20 +58,19 @@ bash update_opt.sh
 
 ### Troubleshooting
 
-### Màn hình bị nháy (Fix mới nhất)
-Code firmware đã được cập nhật sử dụng **Double Buffering (Sprite)** để loại bỏ hoàn toàn hiện tượng nháy khi refresh dữ liệu.
-Để áp dụng fix này, bạn cần nạp lại firmware mới nhất:
+### Nạp firmware mới
+Firmware và host đổi format JSON cùng nhau, phải cập nhật cả hai:
 
 ```bash
-# 1. Tắt monitor đang chạy
-killall python3
+# 1. Tắt service đang giữ cổng serial
+sudo systemctl stop cyd-monitor
 
-# 2. Vào thư mục firmware và upload
-cd monitor_firmware
-pio run -t upload
+# 2. Upload firmware
+cd monitor_firmware && ../.venv/bin/pio run -t upload && cd ..
 
-# 3. Chạy lại monitor
-cyd-monitor
+# 3. Cập nhật host trong /opt và chạy lại
+bash update_opt.sh
+sudo systemctl start cyd-monitor
 ```
 
 ### Permission denied
